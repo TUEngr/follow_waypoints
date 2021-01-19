@@ -13,17 +13,32 @@
   <url type="repository">https://github.com/danielsnider/follow_waypoints</url>
 
   <buildtool_depend>catkin</buildtool_depend>
+  <buildtool_depend>qt5-qmake</buildtool_depend>
   <build_depend>actionlib</build_depend>
   <build_depend>geometry_msgs</build_depend>
   <build_depend>move_base_msgs</build_depend>
   <build_depend>rospy</build_depend>
   <build_depend>smach</build_depend>
   <build_depend>std_msgs</build_depend>
+  <build_depend>qtbase5-dev</build_depend>
+  <build_depend>libqt5-opengl-dev</build_depend>
+
   <run_depend>actionlib</run_depend>
   <run_depend>geometry_msgs</run_depend>
   <run_depend>move_base_msgs</run_depend>
   <run_depend>rospy</run_depend>
   <run_depend>smach</run_depend>
   <run_depend>std_msgs</run_depend>
+
+  <depend>mapviz</depend>
+  <depend>pluginlib</depend>
+  <depend>roscpp</depend>
+
+  <exec_depend>libqt5-core</exec_depend>
+  <exec_depend>libqt5-opengl</exec_depend>
+
+  <export>
+    <mapviz plugin="${prefix}/mapviz_plugins.xml" />
+  </export>
 
 </package>
