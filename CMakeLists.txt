@@ -5,6 +5,7 @@ find_package(catkin REQUIRED COMPONENTS
   actionlib
   geometry_msgs
   mapviz
+  mapviz_plugins
   move_base_msgs
   pluginlib
   roscpp
@@ -58,13 +59,13 @@ include_directories(SYSTEM
 
 # Build libfollow_waypoints_widget
 set(UI_FILES
-  src/follow_waypoints_config.ui
+  mapviz_plugins/follow_waypoints_config.ui
 )
 set(SRC_FILES
-  src/follow_waypoints_plugin.cpp
+  mapviz_plugins/follow_waypoints_plugin.cpp
 )
 set(HEADER_FILES
-    include/${PROJECT_NAME}/follow_waypoints_plugin.h
+    include/mapviz_plugins/follow_waypoints_plugin.h
 )
 
 qt5_wrap_ui(UI_SRC_FILES ${UI_FILES})
@@ -73,6 +74,7 @@ qt5_wrap_cpp(MOC_FILES ${HEADER_FILES})
 add_library(${PROJECT_NAME}
     ${MOC_FILES}
     ${SRC_FILES}
+    ${HEADER_FILES}
     ${UI_SRC_FILES}
 )
 

@@ -27,21 +27,20 @@
 //
 // *****************************************************************************
 
-#include <mapviz_plugins/pose_publisher_plugin.h>
+#include <mapviz_plugins/follow_waypoints_plugin.h>
 
 
 // Declare plugin
 #include <pluginlib/class_list_macros.h>
-PLUGINLIB_EXPORT_CLASS(mapviz_plugins::PosePublisherPlugin, mapviz::MapvizPlugin)
+PLUGINLIB_EXPORT_CLASS(mapviz_plugins::FollowWaypointsPlugin, mapviz::MapvizPlugin)
 
 namespace mapviz_plugins
 {
 
-PosePublisherPlugin::PosePublisherPlugin() :
+FollowWaypointsPlugin::FollowWaypointsPlugin() :
     config_widget_(new QWidget()),
     map_canvas_(nullptr),
-    is_mouse_down_(false),
-    monitoring_action_state_(false)
+    is_mouse_down_(false)
 {
     ui_.setupUi(config_widget_);
 
@@ -56,18 +55,41 @@ PosePublisherPlugin::PosePublisherPlugin() :
     p3.setColor(QPalette::Text, Qt::green);
     ui_.status->setPalette(p3);
 
-    QObject::connect(ui_.pushButtonPose, SIGNAL(toggled()),
-                     this, SLOT(on_pushButtonPose_toggled()));
-
-    QObject::connect(ui_.topic, SIGNAL(textEdited(const QString&)),
-            this, SLOT(topicChanged(const QString&)));
-
-    timer_ = nh_.createTimer(ros::Duration(1.0), &PosePublisherPlugin::timerCallback, this);
+    // PosePublisher block
+    QObject::connect(ui_.pushButtonPose, SIGNAL(toggled(bool)),
+                     this, SLOT(on_pushButtonPose_toggled(bool)));
+    QObject::connect(ui_.addpose_topic, SIGNAL(textEdited(const QString&)),
+            this, SLOT(AddPoseTopicChanged(const QString&)));
+    timer_ = nh_.createTimer(ros::Duration(1.0), &FollowWaypointsPlugin::timerCallback, this);
     frame_timer_.start(1000);
     QObject::connect(&frame_timer_, SIGNAL(timeout()), this, SLOT(updateFrames()));
+
+    // PoseArray block
+    QObject::connect(ui_.selecttopic, SIGNAL(clicked()), this,
+                     SLOT(SelectPoseArrayTopic()));
+    QObject::connect(ui_.posearray_topic, SIGNAL(editingFinished()), this,
+                     SLOT(PoseArrayTopicEdited()));
+    QObject::connect(ui_.positiontolerance, SIGNAL(valueChanged(double)), this,
+                     SLOT(PositionToleranceChanged(double)));
+    QObject::connect(ui_.drawstyle, SIGNAL(activated(QString)), this,
+                     SLOT(SetDrawStyle(QString)));
+    QObject::connect(ui_.static_arrow_sizes, SIGNAL(clicked(bool)),
+                     this, SLOT(SetStaticArrowSizes(bool)));
+    QObject::connect(ui_.arrow_size, SIGNAL(valueChanged(int)),
+                     this, SLOT(SetArrowSize(int)));
+    QObject::connect(ui_.color, SIGNAL(colorEdited(const QColor&)), this,
+            SLOT(SetColor(const QColor&)));
+
+    // Execute block
+    QObject::connect(ui_.pushButtonClearQueue, SIGNAL(toggled(bool)),
+                     this, SLOT(on_pushButtonClearQueue_toggled(bool)));
+    QObject::connect(ui_.pushButtonExecute, SIGNAL(toggled(bool)),
+                     this, SLOT(on_pushButtonExecute_toggled(bool)));
+    QObject::connect(ui_.pushButtonCancelNav, SIGNAL(toggled(bool)),
+                     this, SLOT(on_pushButtonCancelNav_toggled(bool)));
 }
 
-PosePublisherPlugin::~PosePublisherPlugin()
+FollowWaypointsPlugin::~FollowWaypointsPlugin()
 {
     if (map_canvas_)
     {
@@ -75,36 +97,114 @@ PosePublisherPlugin::~PosePublisherPlugin()
     }
 }
 
-void PosePublisherPlugin::PrintError(const std::string& message)
+void FollowWaypointsPlugin::PrintError(const std::string& message)
 {
     PrintErrorHelper( ui_.status, message);
 }
 
-void PosePublisherPlugin::PrintInfo(const std::string& message)
+void FollowWaypointsPlugin::PrintInfo(const std::string& message)
 {
     PrintInfoHelper( ui_.status, message);
 }
 
-void PosePublisherPlugin::PrintWarning(const std::string& message)
+void FollowWaypointsPlugin::PrintWarning(const std::string& message)
 {
     PrintWarningHelper( ui_.status, message);
 }
 
-QWidget* PosePublisherPlugin::GetConfigWidget(QWidget* parent)
+  void FollowWaypointsPlugin::SelectPoseArrayTopic()
+  {
+    ros::master::TopicInfo topic =
+        mapviz::SelectTopicDialog::selectTopic("geometry_msgs/PoseArray");
+
+    if (!topic.name.empty())
+    {
+      ui_.addpose_topic->setText(QString::fromStdString(topic.name));
+      PoseArrayTopicEdited();
+    }
+  }
+
+  void FollowWaypointsPlugin::PoseArrayTopicEdited()
+  {
+    std::string topic = ui_.posearray_topic->text().trimmed().toStdString();
+    if (topic != posearray_topic_)
+    {
+      //initialized_ = false;
+      ClearPoints();
+      //has_message_ = false;
+      //PrintWarning("No messages received.");
+      pose_sub_.shutdown();
+
+      posearray_topic_ = topic;
+      if (!topic.empty())
+      {
+        std::stringstream ss;
+        pose_sub_ = node_.subscribe(posearray_topic_, 10, &FollowWaypointsPlugin::PoseArrayCallback, this);
+        ss << "Subscribing to " << posearray_topic_ ;
+        PrintInfo(ss.str());
+      }
+    }
+  }
+
+  void FollowWaypointsPlugin::PoseArrayCallback(const geometry_msgs::PoseArrayConstPtr& msg)
+  {
+    PrintInfo("In PoseArrayCallback.");
+
+    /*
+    if (!has_message_)
+    {
+      initialized_ = true; // callback won't draw till this is true
+      has_message_ = true;
+      PrintInfo("Initialized.... PoseArrayCallback.");
+    }
+    */
+
+    ClearPoints();
+
+    StampedPoint stamped_point;
+
+    std::stringstream ss;
+    ss << "Pushing " << msg->poses.size() << " points";
+    PrintInfo(ss.str());
+
+    for (unsigned int i=0 ; i < msg->poses.size(); i++)
+    {
+        stamped_point.stamp = msg->header.stamp;
+        stamped_point.source_frame = msg->header.frame_id;
+        geometry_msgs::Pose pose = msg->poses[i];
+
+        stamped_point.point = tf::Point(pose.position.x,
+                                        pose.position.y,
+                                        pose.position.z);
+
+        stamped_point.orientation = tf::Quaternion(
+                pose.orientation.x,
+                pose.orientation.y,
+                pose.orientation.z,
+                pose.orientation.w);
+
+        pushPoint( std::move( stamped_point) );
+    }
+  }
+
+
+QWidget* FollowWaypointsPlugin::GetConfigWidget(QWidget* parent)
 {
     config_widget_->setParent(parent);
     return config_widget_;
 }
 
-bool PosePublisherPlugin::Initialize(QGLWidget* canvas)
+bool FollowWaypointsPlugin::Initialize(QGLWidget* canvas)
 {
     map_canvas_ = static_cast<mapviz::MapCanvas*>(canvas);
     map_canvas_->installEventFilter(this);
     initialized_ = true;
+    AddPoseTopicChanged(ui_.addpose_topic->text()); // set up the publish topic
+    PrintInfo("FWP Initialized....");
     return true;
 }
 
-bool PosePublisherPlugin::eventFilter(QObject *object, QEvent* event)
+bool FollowWaypointsPlugin::eventFilter(QObject *object, QEvent* event)
 {
     switch (event->type())
     {
@@ -119,14 +219,14 @@ bool PosePublisherPlugin::eventFilter(QObject *object, QEvent* event)
     }
 }
 
-void PosePublisherPlugin::timerCallback(const ros::TimerEvent &)
+void FollowWaypointsPlugin::timerCallback(const ros::TimerEvent &)
 {
   ui_.pushButtonPose->setEnabled( true );
   PrintInfoHelper( ui_.status, "OK");
 }
 
 
-bool PosePublisherPlugin::handleMousePress(QMouseEvent* event)
+bool FollowWaypointsPlugin::handleMousePress(QMouseEvent* event)
 {
     bool pose_checked = ui_.pushButtonPose->isChecked();
 
@@ -149,7 +249,7 @@ bool PosePublisherPlugin::handleMousePress(QMouseEvent* event)
     return false;
 }
 
-bool PosePublisherPlugin::handleMouseMove(QMouseEvent* event)
+bool FollowWaypointsPlugin::handleMouseMove(QMouseEvent* event)
 {
     if (is_mouse_down_)
     {
@@ -164,7 +264,7 @@ bool PosePublisherPlugin::handleMouseMove(QMouseEvent* event)
     return false;
 }
 
-bool PosePublisherPlugin::handleMouseRelease(QMouseEvent* event)
+bool FollowWaypointsPlugin::handleMouseRelease(QMouseEvent* event)
 {
     if( !is_mouse_down_ )
     {
@@ -215,9 +315,12 @@ bool PosePublisherPlugin::handleMouseRelease(QMouseEvent* event)
         PrintWarning(ss.str());
         }
 
-      pose_pub_.publish(pose);
       std::stringstream ss;
-      ss << "Pose published to topic: " <<  ui_.topic->text().toStdString().c_str()
+      ss << "Publishing pose to topic " <<  ui_.addpose_topic->text().toStdString().c_str()
+         << " in frame " << pose.header.frame_id << std::endl;
+      pose_pub_.publish(pose);
+      ss.clear();
+      ss << "Pose published to topic: " <<  ui_.addpose_topic->text().toStdString().c_str()
          << " in frame " << pose.header.frame_id;
       PrintInfo(ss.str());
 
@@ -227,8 +330,15 @@ bool PosePublisherPlugin::handleMouseRelease(QMouseEvent* event)
 }
 
 
-void PosePublisherPlugin::Draw(double x, double y, double scale)
+void FollowWaypointsPlugin::Draw(double x, double y, double scale)
 {
+    // For PoseArray
+    if (DrawPoints(scale))
+    {
+      PrintInfo("Draw OK");
+    }
+
+    // For adding a waypoint...
     std::array<QPointF, 7> arrow_points;
     arrow_points[0] = QPointF(10, 0);
     arrow_points[1] = QPointF(6, -2.5);
@@ -266,34 +376,102 @@ void PosePublisherPlugin::Draw(double x, double y, double scale)
         }
         glEnd();
     }
+
 }
 
 
-void PosePublisherPlugin::LoadConfig(const YAML::Node& node, const std::string& path)
+void FollowWaypointsPlugin::LoadConfig(const YAML::Node& node, const std::string& path)
 {
-    std::string tmp;
-    if (swri_yaml_util::FindValue(node, "topic"))
+    PrintInfo("LoadConfig()");
+    // PosePublisher
+    if (node["addpose_topic"])
     {
-      node["topic"] >> tmp;
-      ui_.topic->setText(QString(tmp.c_str()));
-      topicChanged(ui_.topic->text());
+      std::string topic;
+      node["addpose_topic"] >> topic;
+      ui_.addpose_topic->setText(topic.c_str());
+      AddPoseTopicChanged(QString(topic.c_str()));
     }
 
-    if (swri_yaml_util::FindValue(node, "output_frame"))
+    if (node["output_frame"])
     {
+      std::string tmp;
       node["output_frame"] >> tmp;
       ui_.outputframe->addItem(QString(tmp.c_str()));
     }
 
+
+    //PoseArray
+    if (node["posearray_topic"])
+    {
+      std::string topic;
+      node["posearray_topic"] >> topic;
+      ui_.posearray_topic->setText(topic.c_str());
+    }
+    PoseArrayTopicEdited(); // forces redraw
+
+    if (node["color"])
+    {
+      std::string color;
+      node["color"] >> color;
+      QColor qcolor(color.c_str());
+      SetColor(qcolor);
+      ui_.color->setColor(qcolor);
+    }
+
+    if (node["draw_style"])
+    {
+      std::string draw_style;
+      node["draw_style"] >> draw_style;
+
+      if (draw_style == "arrows")
+      {
+        ui_.drawstyle->setCurrentIndex(0);
+        SetDrawStyle( ARROWS );
+      }
+      else if (draw_style == "points")
+      {
+        ui_.drawstyle->setCurrentIndex(1);
+        SetDrawStyle( POINTS );
+      }
+    }
+
+    if (node["position_tolerance"])
+    {
+      double position_tolerance;
+      node["position_tolerance"] >> position_tolerance;
+      ui_.positiontolerance->setValue(position_tolerance);
+      PositionToleranceChanged(position_tolerance);
+    }
+
+    if (node["static_arrow_sizes"])
+    {
+      bool static_arrow_sizes = node["static_arrow_sizes"].as<bool>();
+      ui_.static_arrow_sizes->setChecked(static_arrow_sizes);
+      SetStaticArrowSizes(static_arrow_sizes);
+    }
+
+    if (node["arrow_size"])
+    {
+      int arrow_size = node["arrow_size"].as<int>();
+      ui_.arrow_size->setValue(arrow_size);
+      SetArrowSize(arrow_size);
+    }
+
 }
 
-void PosePublisherPlugin::SaveConfig(YAML::Emitter& emitter, const std::string& path)
+void FollowWaypointsPlugin::SaveConfig(YAML::Emitter& emitter, const std::string& path)
 {
-    emitter << YAML::Key << "topic" << YAML::Value << ui_.topic->text().toStdString();
+    emitter << YAML::Key << "addpose_topic" << YAML::Value << ui_.addpose_topic->text().toStdString();
     emitter << YAML::Key << "output_frame" << YAML::Value << ui_.outputframe->currentText().toStdString();
+    emitter << YAML::Key << "posearray_topic" << YAML::Value << ui_.posearray_topic->text().toStdString();
+    emitter << YAML::Key << "color" << YAML::Value << ui_.color->color().name().toStdString();
+    emitter << YAML::Key << "draw_style" << YAML::Value << ui_.drawstyle->currentText().toStdString();
+    emitter << YAML::Key << "position_tolerance" << YAML::Value << positionTolerance();
+    emitter << YAML::Key << "static_arrow_sizes" << YAML::Value << ui_.static_arrow_sizes->isChecked();
+    emitter << YAML::Key << "arrow_size" << YAML::Value << ui_.arrow_size->value();
 }
 
-void PosePublisherPlugin::on_pushButtonPose_toggled(bool checked)
+void FollowWaypointsPlugin::on_pushButtonPose_toggled(bool checked)
 {
     if(checked)
     {
@@ -308,7 +486,7 @@ void PosePublisherPlugin::on_pushButtonPose_toggled(bool checked)
 
 
 
-  void PosePublisherPlugin::topicChanged(const QString& topic)
+  void FollowWaypointsPlugin::AddPoseTopicChanged(const QString& topic)
   {
     std::stringstream ss;
     ss << "Publishing points to topic: " << topic.toStdString().c_str();
@@ -320,7 +498,7 @@ void PosePublisherPlugin::on_pushButtonPose_toggled(bool checked)
     }
   }
 
-  void PosePublisherPlugin::updateFrames()
+  void FollowWaypointsPlugin::updateFrames()
   {
     std::vector<std::string> frames;
     tf_->getFrameStrings(frames);
@@ -361,15 +539,87 @@ void PosePublisherPlugin::on_pushButtonPose_toggled(bool checked)
 
     if (output_frame != "")
     {
+      // Add output_frame to frame list if no already there.
       int index = ui_.outputframe->findText(output_frame.c_str());
       if (index < 0)
       {
         ui_.outputframe->addItem(output_frame.c_str());
       }
 
+      // Get index of output_frame in list
       index = ui_.outputframe->findText(output_frame.c_str());
       ui_.outputframe->setCurrentIndex(index);
     }
+    // output_frame is ""
+    else  // use map frame
+      {
+      PrintWarning("using map target frame as fallback");
+      int index = ui_.outputframe->findText(QString("map"));
+      ui_.outputframe->setCurrentIndex(index);
+      }
   }
+
+void FollowWaypointsPlugin::on_pushButtonCancelNav_toggled(bool checked)
+{
+    if(checked)
+    {
+      PrintInfo("Cancel Navigation...");
+      actionlib_msgs::GoalID myMsg;
+      ros::Publisher cancel_pub_ = node_.advertise<actionlib_msgs::GoalID>("/move_base/cancel", 1, true);
+      int niter=0;
+      while (cancel_pub_.getNumSubscribers()==0 && niter++<100)
+      {
+        std::stringstream ss;
+        ss << "Waiting for subscriber - iter " << niter << std::endl;
+        PrintWarning(ss.str());
+        sleep(1);
+      }
+      cancel_pub_.publish(myMsg);
+      PrintInfo("published empty msg to /move_base/cancel.... STOP!");
+      ui_.pushButtonCancelNav->setChecked(false);
+
+    }
+}
+
+void FollowWaypointsPlugin::on_pushButtonClearQueue_toggled(bool checked)
+{
+    if(checked)
+    {
+      PrintInfo("Clear Waypoints...");
+      std_msgs::Empty myMsg;
+      ros::Publisher path_pub_ = node_.advertise<std_msgs::Empty>("/path_reset", 1, true);
+      int niter=0;
+      while (path_pub_.getNumSubscribers()==0 && niter++<100)
+      {
+        std::stringstream ss;
+        ss << "Waiting for subscriber - iter " << niter << std::endl;
+        PrintWarning(ss.str());
+        sleep(1);
+      }
+      path_pub_.publish(myMsg);
+      PrintInfo("published empty msg to /path_reset.... CLEAR!");
+      ui_.pushButtonClearQueue->setChecked(false);
+    }
+}
+void FollowWaypointsPlugin::on_pushButtonExecute_toggled(bool checked)
+{
+    if(checked)
+    {
+      PrintInfo("Execute Waypoints...");
+      std_msgs::Empty myMsg;
+      ros::Publisher path_pub_ = node_.advertise<std_msgs::Empty>("/path_ready", 1, true);
+      int niter=0;
+      while (path_pub_.getNumSubscribers()==0 && niter++<100)
+      {
+        std::stringstream ss;
+        ss << "Waiting for subscriber - iter " << niter << std::endl;
+        PrintWarning(ss.str());
+        sleep(1);
+      }
+      path_pub_.publish(myMsg);
+      PrintInfo("published empty msg to /path_ready.... GO!");
+      ui_.pushButtonExecute->setChecked(false);
+    }
+}
 
 }
