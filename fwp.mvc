@@ -1,0 +1,136 @@
+capture_directory: ~
+fixed_frame: map
+target_frame: <none>
+fix_orientation: false
+rotate_90: false
+enable_antialiasing: true
+show_displays: true
+show_status_bar: true
+show_capture_tools: true
+window_width: 1200
+window_height: 1020
+view_scale: 0.007744139
+offset_x: 3.589896
+offset_y: -3.11757
+use_latest_transforms: true
+background: "#a0a0a4"
+displays:
+  - type: mapviz_plugins/tf_frame
+    name: new display
+    config:
+      visible: false
+      collapsed: true
+      frame: base_link
+      color: "#e9b96e"
+      draw_style: arrows
+      position_tolerance: 0
+      buffer_size: 0
+      static_arrow_sizes: false
+      arrow_size: 25
+  - type: mapviz_plugins/occupancy_grid
+    name: map
+    config:
+      visible: true
+      collapsed: true
+      alpha: 1
+      topic: /map
+      update: true
+      scheme: map
+  - type: mapviz_plugins/occupancy_grid
+    name: global_costmap
+    config:
+      visible: false
+      collapsed: true
+      alpha: 0.7
+      topic: /move_base/global_costmap/costmap
+      update: true
+      scheme: map
+  - type: mapviz_plugins/pointcloud2
+    name: local_planner_cost
+    config:
+      visible: true
+      collapsed: false
+      topic: /move_base/DWAPlannerROS/cost_cloud
+      size: 3
+      buffer_size: 1
+      alpha: 0.800000011920929
+      color_transformer: total_cost
+      min_color: "#ffffff"
+      max_color: "#000000"
+      value_min: 0
+      value_max: 100
+      use_rainbow: true
+      use_automaxmin: true
+      unpack_rgb: false
+  - type: mapviz_plugins/follow_waypoints
+    name: new display
+    config:
+      visible: true
+      collapsed: true
+  - type: mapviz_plugins/robot_image
+    name: new display
+    config:
+      visible: true
+      collapsed: true
+      frame: base_link
+      image: /home/knickels/code/rover_sim_ws/src/rover_sim/rover_description/meshes/DVtwb9-TopView.png
+      width: 2
+      height: 1
+      offset_x: 0
+      offset_y: 0
+  - type: mapviz_plugins/pose_array
+    name: waypoints
+    config:
+      visible: true
+      collapsed: true
+      topic: /waypoints
+      color: "#edd400"
+      draw_style: arrows
+      position_tolerance: 0
+      static_arrow_sizes: false
+      arrow_size: 15
+  - type: mapviz_plugins/pose_publisher
+    name: new display
+    config:
+      visible: true
+      collapsed: true
+      topic: /selected_pose
+      output_frame: map
+  - type: mapviz_plugins/laserscan
+    name: new display
+    config:
+      visible: true
+      collapsed: true
+      topic: /scan
+      size: 1
+      buffer_size: 1
+      alpha: 1
+      color_transformer: Flat Color
+      min_color: "#ef2929"
+      max_color: "#000000"
+      value_min: 0
+      value_max: 100
+      use_rainbow: false
+  - type: mapviz_plugins/pose_array
+    name: AMCL Particle Cloud
+    config:
+      visible: true
+      collapsed: true
+      topic: /particlecloud
+      color: "#00ff00"
+      draw_style: arrows
+      position_tolerance: 0
+      static_arrow_sizes: false
+      arrow_size: 3
+  - type: mapviz_plugins/move_base
+    name: new display
+    config:
+      visible: true
+      collapsed: false
+  - type: mapviz_plugins/path
+    name: global plan
+    config:
+      visible: true
+      collapsed: false
+      topic: /move_base/DWAPlannerROS/global_plan
+      color: "#c4a000"
